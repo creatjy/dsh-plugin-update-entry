@@ -3,16 +3,20 @@
 import { JSDOM } from 'jsdom'
 import { Context, Service } from '@deepseek-ai/cordis'
 
+// The class prefix belongs to the host build's CSS modules: 0.2.2-rc.1 ships
+// `w6M7KW_`, 0.2.2-rc.2 ships `X_2TxG_`. The plugin matches substrings, so both
+// must mount; PUE_PREFIX lets the test suite prove that.
+const P = process.env.PUE_PREFIX || 'w6M7KW_'
 const dom = new JSDOM(`<!doctype html><html><body>
-<div class="w6M7KW_pageBody" data-plugin-body><ul class="cards">
-<li class="w6M7KW_card" data-plugin-package="dsh-mcp-connector" data-plugin-status="running">
-  <div class="w6M7KW_cardHead"><span class="w6M7KW_cardIcon"></span>
-  <div class="w6M7KW_cardMain"><div class="w6M7KW_titleRow">
-    <button class="w6M7KW_cardTitle cardOpen">dsh-mcp-connector</button>
-    <span class="w6M7KW_statusTag">可更新</span></div>
-    <span class="w6M7KW_cardDesc">MCP connector</span></div>
-  <div class="w6M7KW_cardEnd"><span class="w6M7KW_bundleToggle">
-    <span class="w6M7KW_toggleProgress" role="status"></span>
+<div class="${P}pageBody" data-plugin-body><ul class="${P}cards">
+<li class="${P}card" data-plugin-package="dsh-mcp-connector" data-plugin-status="running">
+  <div class="${P}cardHead"><span class="${P}cardIcon"></span>
+  <div class="${P}cardMain"><div class="${P}titleRow">
+    <button class="${P}cardTitle cardOpen">dsh-mcp-connector</button>
+    <span class="${P}statusTag">可更新</span></div>
+    <span class="${P}cardDesc">MCP connector</span></div>
+  <div class="${P}cardEnd"><span class="${P}bundleToggle">
+    <span class="${P}toggleProgress" role="status"></span>
     <button role="switch" aria-checked="true"></button></span></div></div></li>
 </ul></div></body></html>`, { url: 'http://127.0.0.1:62881/' })
 const { window } = dom
@@ -70,7 +74,12 @@ await root.plugin({ name: reg.id, inject: reg.inject, apply: reg.factory({}).app
 await new Promise((r) => setTimeout(r, 200))
 
 const btn = document.querySelector('.pue-btn')
-console.log('1 button', btn?.textContent.trim(), 'beforeSwitch', btn?.nextElementSibling === document.querySelector('.bundleToggle'))
+console.log('0 prefix', P)
+const slot = document.querySelector('.pue-slot')
+const end = document.querySelector('[class*="cardEnd"]')
+console.log('1 button', btn?.textContent.trim(),
+  'beforeSwitch', slot?.nextElementSibling?.matches('[class*="bundleToggle"]') === true,
+  'firstChild', end?.firstElementChild === slot)
 btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
 await new Promise((r) => setTimeout(r, 400))
 console.log('2 rows', [...document.querySelectorAll('.pue-row')].map((r) => r.textContent.trim().slice(0, 22)))

@@ -64,6 +64,17 @@ dsh-plugin-update-entry
 
 **要求**：DSH 桌面端或 Web 端（Client 侧插件）。插件本身没有 Host 逻辑，不需要重启后端。
 
+**兼容版本**：`engines.dsh = ^0.2.2-rc.1`（等价 `>=0.2.2-rc.1 <0.3.0`）。已在 0.2.2-rc.1（桌面端实机）和 0.2.2-rc.2 上核对过下面四个依赖面：
+
+| 依赖面 | 0.2.2-rc.1 | 0.2.2-rc.2 |
+| --- | --- | --- |
+| 卡片锚点 `data-plugin-package` / `cardEnd` / `bundleToggle` / `statusTag` | ✅ | ✅ 全部保留 |
+| CSS module 类名前缀 | `w6M7KW_` | `X_2TxG_`（插件只匹配子串，不受影响） |
+| `listVersions` / `updateBundle` 的远端参数 | `(name, options)` / `(name, version, options)` | 相同 |
+| 模块加载契约 `__ModuleLoader__.load({ id, factory })` | ✅ | ✅ |
+
+类名前缀是构建产物，随时可能再变；`test/dom.test.mjs` 会带两套前缀各跑一遍卡片渲染，改名时不会静默失效。
+
 ## 边界与取舍
 
 | 情况 | 行为 |

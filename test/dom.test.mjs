@@ -27,8 +27,12 @@ const hasCordis = existsSync(join(root, 'node_modules', '@deepseek-ai', 'cordis'
 const noJsdom = hasJsdom ? false : 'run `npm install` first: the DOM harness needs jsdom';
 const noCordis = hasCordis ? false : 'run `npm install` first: this harness needs @deepseek-ai/cordis';
 
-function run(file) {
-  return execFileSync(process.execPath, [harness(file)], { encoding: 'utf8', timeout: 120000 });
+function run(file, env = {}) {
+  return execFileSync(process.execPath, [harness(file)], {
+    encoding: 'utf8',
+    timeout: 120000,
+    env: { ...process.env, ...env },
+  });
 }
 
 test('dom: service transport renders the button, versions, hover notes and updates', { skip: noJsdom || noCordis }, () => {
@@ -38,6 +42,23 @@ test('dom: service transport renders the button, versions, hover notes and updat
   assert.match(output, /4 hover 0\.2\.100发布于/);
   assert.match(output, /5 afterLeave false/);
   assert.match(output, /6a confirm 将从 0\.2\.96 更新到 0\.2\.100/);
+  assert.match(output, /7 update .*已更新到 0\.2\.100/);
+  assert.match(output, /\["updateBundle","dsh-mcp-connector","0\.2\.100"\]/);
+});
+
+/**
+ * DSH 0.2.2-rc.2 renamed every CSS-module class prefix (`w6M7KW_` -> `X_2TxG_`).
+ * The plugin never matches a full class name, only substrings such as
+ * `[class*="cardEnd"]`, so the entry must mount identically on the new build.
+ * This runs the same harness against rc.2's prefix.
+ */
+test('dom: 0.2.2-rc.2 class prefixes still mount the entry', { skip: noJsdom || noCordis }, () => {
+  const output = run('harness-real.mjs', { PUE_PREFIX: 'X_2TxG_' });
+  assert.match(output, /0 prefix X_2TxG_/);
+  assert.match(output, /1 button 更新 beforeSwitch true/);
+  assert.match(output, /2 rows \[ '0\.2\.100/);
+  assert.match(output, /4 hover 0\.2\.100发布于/);
+  assert.match(output, /5 afterLeave false/);
   assert.match(output, /7 update .*已更新到 0\.2\.100/);
   assert.match(output, /\["updateBundle","dsh-mcp-connector","0\.2\.100"\]/);
 });
