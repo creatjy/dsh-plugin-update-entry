@@ -1,0 +1,3 @@
+- insert:
+    - id: plugin-update-entry
+      name: 'dsh-plugin-update-entry'

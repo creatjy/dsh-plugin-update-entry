@@ -1,0 +1,58 @@
+{
+  "name": "dsh-plugin-update-entry",
+  "version": "1.0.0",
+  "description": "Update entry before each DSH plugin card switch: pick a version and read its release notes without opening the detail page.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "icon.png",
+    "screenshots.json",
+    "docs/images/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh-plugin",
+    "dsh",
+    "deepseek-harness",
+    "plugin-manager",
+    "updates",
+    "ui"
+  ],
+  "author": "creatjy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/creatjy/dsh-plugin-update-entry.git"
+  },
+  "homepage": "https://github.com/creatjy/dsh-plugin-update-entry#readme",
+  "bugs": {
+    "url": "https://github.com/creatjy/dsh-plugin-update-entry/issues"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugin update entry",
+    "description": "An update control before each plugin card's switch, with version choice and per-version release notes."
+  }
+}
