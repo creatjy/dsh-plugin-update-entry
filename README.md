@@ -126,19 +126,29 @@ DSH 的 Client 插件要调 Host 服务，常规写法是声明 `inject: ['remot
 ## 开发
 
 ```
-client.js            Client 模块：扫描、注入、浮层、版本与说明、更新流程
-index.js             Host 侧空实现（组合包需要一个 Host 入口）
-cordis.patch.yml     组合包声明
-locale/{zh,en}.json  显示元数据
-test/pure.test.mjs   纯函数（版本解析、仓库解析、结局映射、错误清洗…）
-test/dom.test.mjs    DOM 回归：在 jsdom 里还原官方卡片结构，跑完整交互
+client.js             Client 模块：扫描、注入、浮层、版本与说明、更新流程
+index.js              Host 侧空实现（组合包需要一个 Host 入口）
+cordis.patch.yml      组合包声明
+locale/{zh,en}.json   显示元数据
+test/pure.test.mjs    纯函数（版本解析、仓库解析、结局映射、错误清洗…）
+test/dom.test.mjs     DOM 回归入口
+test/harness/         三个 jsdom harness：服务层 / connection.rpc / 仅 fetch
 ```
 
 ```sh
-node --test test/*.test.mjs
+npm install     # 只装 devDependencies：jsdom + @deepseek-ai/cordis
+npm test        # 18 条纯函数 + 3 条 DOM 回归
 ```
 
-纯函数测试无依赖，直接就能跑。DOM 回归在一套 jsdom + 真实 cordis 上下文的本地 harness 里运行，仓库外的 harness 缺失时自动跳过。
+`npm test` 不需要 DSH 在跑。三条 DOM 回归分别在 jsdom 里还原官方卡片结构，覆盖插件在浏览器里可能遇到的三种传输形态：
+
+| harness | 上下文 | 证明什么 |
+| --- | --- | --- |
+| `harness-real.mjs` | 真实 cordis，`remote.pluginManager` 命名空间已挂载 | 按钮在开关前、版本列表、悬停说明、确认后调用 `updateBundle` |
+| `harness-transport.mjs` | 只有 `connection.rpc.call` | 降级到网关 RPC，且 `args` 是按参数名索引的对象 |
+| `harness-fetch.mjs` | 所有服务都读不到，只剩 `fetch` | `POST /api/pluginManager/<method>` 单独就能撑起完整流程 |
+
+单独跑某一条：`node test/harness/harness-fetch.mjs`。缺 devDependencies 时这三条会跳过，纯函数 18 条照跑。
 
 调试：`localStorage.pueDebug = '1'` 后重新打开浮层，头部会显示构建号，失败信息里会附带每一层的解析结果与原始错误。
 
