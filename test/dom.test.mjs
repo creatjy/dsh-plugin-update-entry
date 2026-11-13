@@ -90,3 +90,22 @@ test('dom: the /api wire tier works with no cordis services', { skip: noJsdom },
   assert.match(output, /7 outcome .*已更新到 0\.9\.43/);
   assert.match(output, /\["updateBundle","name\+version\+options","0\.9\.43"\]/);
 });
+
+/**
+ * The Host concatenates one classic script per batch. When a stale graph row
+ * names this same file under a second id (seen after the rename), those bytes
+ * land in one script twice. Two `const` declarations of the same name is a
+ * parse error, so the whole batch dies before any line runs — and every package
+ * scheduled after us with it. The bundle is function-wrapped for that reason,
+ * and only the loader's own duplicate error for our id is swallowed.
+ *
+ * This harness runs in node:vm with no DOM on purpose: the property under test
+ * is script-level, not page-level.
+ */
+test('duplicate: a batch that embeds this bundle twice still loads', { skip: noJsdom }, () => {
+  const output = run('harness-duplicate.mjs');
+  assert.match(output, /1 batch threw false/);
+  assert.match(output, /2 registered \["dsh-plugin-update-entry","later-package"\]/);
+  assert.match(output, /3 unrelated duplicate threw true/);
+  assert.match(output, /4 our id count 1/);
+});

@@ -125,6 +125,12 @@ DSH 的 Client 插件要调 Host 服务，常规写法是声明 `inject: ['remot
 
 读操作任何一层失败都可以换下一层；**写操作不行**。`updateBundle` 只在错误能证明「请求根本没发出去」时才降级重试，否则可能把一次更新下发两遍。这条判断在 `viaTiers(..., { mutating: true })` 里。
 
+### 为什么整个文件包在函数里
+
+Host 把每个 batch 的所有 Client 模块**拼成一个 classic script**下发。如果 boot graph 里出现两行指向同一个 bundle（包改名后旧行残留在 Host 内存里就会这样），这些字节会在同一个脚本里出现两次——同一个 `const` 声明两次是**解析错误**，整个 9 MB 的 batch 一行都不会执行，排在我们后面的包全部装不上。改名的代价不该由别人的插件来付。
+
+所以文件用 `;(function () { ... })();` 包起来，每份副本各自一个作用域；注册失败只在错误是「本包 id 的 `duplicate factory registration`」时吞掉（同一份字节的第二次执行不携带任何新信息），其它错误照常抛出。HMR 的 `invalidate()` 会先删掉 factory，热替换后照常重新注册，不受影响。
+
 ### 依赖与权限
 
 - 不写 Host 代码：`index.js` 是空实现，插件只提供 Client 模块。
@@ -143,23 +149,24 @@ cordis.patch.yml      组合包声明
 locale/{zh,en}.json   显示元数据
 test/pure.test.mjs    纯函数（版本解析、仓库解析、结局映射、错误清洗…）
 test/dom.test.mjs     DOM 回归入口
-test/harness/         三个 jsdom harness：服务层 / connection.rpc / 仅 fetch
+test/harness/         jsdom harness：服务层 / connection.rpc / 仅 fetch / 重复嵌入
 ```
 
 ```sh
-npm install     # 只装 devDependencies：jsdom + @deepseek-ai/cordis
-npm test        # 18 条纯函数 + 3 条 DOM 回归
+npm install     # 只装 devDependencies：jsdom + @deepseek-ai/cordis + semver
+npm test        # 20 条纯函数 + 5 条 DOM/脚本回归
 ```
 
-`npm test` 不需要 DSH 在跑。三条 DOM 回归分别在 jsdom 里还原官方卡片结构，覆盖插件在浏览器里可能遇到的三种传输形态：
+`npm test` 不需要 DSH 在跑。四条 DOM 回归分别在 jsdom 里还原官方卡片结构，覆盖插件在浏览器里可能遇到的传输形态：
 
 | harness | 上下文 | 证明什么 |
 | --- | --- | --- |
 | `harness-real.mjs` | 真实 cordis，`remote.pluginManager` 命名空间已挂载 | 按钮在开关前、版本列表、悬停说明、确认后调用 `updateBundle` |
 | `harness-transport.mjs` | 只有 `connection.rpc.call` | 降级到网关 RPC，且 `args` 是按参数名索引的对象 |
 | `harness-fetch.mjs` | 所有服务都读不到，只剩 `fetch` | `POST /api/pluginManager/<method>` 单独就能撑起完整流程 |
+| `harness-duplicate.mjs` | `node:vm`，一个脚本里放两份本 bundle | 重复嵌入不再是解析错误，本包只注册一次，别的包照常注册，无关的重复仍然抛错 |
 
-单独跑某一条：`node test/harness/harness-fetch.mjs`。缺 devDependencies 时这三条会跳过，纯函数 18 条照跑。
+单独跑某一条：`node test/harness/harness-fetch.mjs`。缺 devDependencies 时这些会跳过，纯函数照跑。
 
 调试：`localStorage.pueDebug = '1'` 后重新打开浮层，头部会显示构建号，失败信息里会附带每一层的解析结果与原始错误。
 
