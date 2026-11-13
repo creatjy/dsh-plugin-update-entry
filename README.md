@@ -18,7 +18,7 @@
 
 它**不改动**官方页面的任何逻辑，也不接管更新流程——调用的仍是 Host 自己的 `pluginManager/updateBundle`，所以检查、移除、安装、失败回滚全部沿用官方实现。
 
-## 三个能力
+## 四个能力
 
 ### 1 · 更新入口在开关之前
 
@@ -40,6 +40,21 @@
 指针停在某个版本行上约 140ms，左侧弹出该版本的更新说明；移到气泡里不会消失，移开约 180ms 后消失。说明来自该包的 **GitHub Releases**，按 tag 里的语义化版本匹配。
 
 读不到 Release 时降级为版本元数据（版本、发布日期、标签、是否组合包、所需 DSH），不编造内容。
+
+### 4 · 一键更新：工具栏上的整批入口
+
+![一键更新面板](docs/images/bulk.png)
+
+官方在工具栏显示「N 个插件可更新」时，紧挨着它会出现「一键更新」。点开是一份**全部可更新插件**的清单（数据来自 `pluginManager/listBundles`，与官方刷新同源），每个插件一行：
+
+- 左边是包名与已安装版本，右边是本次要更新的目标版本；中间有 `→` 表示目标高于当前版本。
+- 展开任意一行可以换版本——规则与单个插件完全相同：只列更新的版本，不可安装的行变灰说明原因，默认选中第一个可安装版本。
+- 版本行同样支持悬停看该版本在 GitHub 上的更新说明，读不到时降级为版本元数据。
+- 没有任何可安装新版本的包（例如新版本要求更高的 DSH，或注册表尚未收录）会在行下标出「没有可直接安装的新版本」/「已是最新版本」，并在一键更新时自动跳过，不会静默失败。
+
+点「更新 N 个」后**按列表顺序逐个更新**，一次只有一个插件在动（同一时刻只应有一个写操作），面板里逐行显示进度与结果，底部汇总「x 个已更新，y 个失败」。运行中可以「停止」，已排队的插件不再执行。
+
+面板跟随工具栏按钮定位：右对齐、超出视口时贴边、下方空间不足翻到上方；运行中点击面板外部不会关闭面板，避免唯一的进度视图消失。
 
 ### 更新过程
 
@@ -148,16 +163,17 @@ index.js              Host 侧空实现（组合包需要一个 Host 入口）
 cordis.patch.yml      组合包声明
 locale/{zh,en}.json   显示元数据
 test/pure.test.mjs    纯函数（版本解析、仓库解析、结局映射、错误清洗…）
+test/engines.test.mjs engines.dsh 的 semver 边界
 test/dom.test.mjs     DOM 回归入口
-test/harness/         jsdom harness：服务层 / connection.rpc / 仅 fetch / 重复嵌入
+test/harness/         jsdom harness：服务层 / connection.rpc / 仅 fetch / 重复嵌入 / 一键更新
 ```
 
 ```sh
 npm install     # 只装 devDependencies：jsdom + @deepseek-ai/cordis + semver
-npm test        # 20 条纯函数 + 5 条 DOM/脚本回归
+npm test        # 20 条纯函数 + 6 条 DOM/脚本回归 + 2 条 engines 边界
 ```
 
-`npm test` 不需要 DSH 在跑。四条 DOM 回归分别在 jsdom 里还原官方卡片结构，覆盖插件在浏览器里可能遇到的传输形态：
+`npm test` 不需要 DSH 在跑。五条 DOM 回归分别在 jsdom 里还原官方卡片与工具栏结构，覆盖插件在浏览器里可能遇到的传输形态：
 
 | harness | 上下文 | 证明什么 |
 | --- | --- | --- |
@@ -165,6 +181,7 @@ npm test        # 20 条纯函数 + 5 条 DOM/脚本回归
 | `harness-transport.mjs` | 只有 `connection.rpc.call` | 降级到网关 RPC，且 `args` 是按参数名索引的对象 |
 | `harness-fetch.mjs` | 所有服务都读不到，只剩 `fetch` | `POST /api/pluginManager/<method>` 单独就能撑起完整流程 |
 | `harness-duplicate.mjs` | `node:vm`，一个脚本里放两份本 bundle | 重复嵌入不再是解析错误，本包只注册一次，别的包照常注册，无关的重复仍然抛错 |
+| `harness-bulk.mjs` | jsdom，工具栏 note + 可更新清单 | 按钮挂在 note 之后、清单覆盖全部可更新包、换版本只影响该项、后台版本检查重建列表时悬停气泡仍在、顺序执行并汇总 |
 
 单独跑某一条：`node test/harness/harness-fetch.mjs`。缺 devDependencies 时这些会跳过，纯函数照跑。
 

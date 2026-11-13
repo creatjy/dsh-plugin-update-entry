@@ -197,6 +197,38 @@
     return restored ? String(restored) : '';
   }
 
+  /**
+   * The bundles worth listing: installed, updatable, and actually a bundle.
+   * `listBundles` reports both profile and installation packages; only the
+   * installed ones can be updated from here, and `official` packages are the
+   * Host's own and never appear as updatable.
+   */
+  function updatableBundles(bundles) {
+    const list = Array.isArray(bundles) ? bundles : [];
+    const out = [];
+    for (const bundle of list) {
+      if (!bundle || typeof bundle.name !== 'string') continue;
+      if (!bundle.installed || !bundle.updatable) continue;
+      out.push({ name: bundle.name, from: String(bundle.version || '') });
+    }
+    out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    return out;
+  }
+
+  /** Tally of a bulk run, for the summary line. */
+  function bulkSummary(items) {
+    let ok = 0;
+    let failed = 0;
+    let pending = 0;
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item) continue;
+      if (item.state === 'done') ok += 1;
+      else if (item.state === 'failed') failed += 1;
+      else if (item.state === 'idle') pending += 1;
+    }
+    return { ok, failed, pending };
+  }
+
   function messageOf(error) {
     if (!error) return '';
     return String(error.message || error.error || error || '');
@@ -239,6 +271,8 @@
       planSteps,
       stepState,
       outputOf,
+      updatableBundles,
+      bulkSummary,
     },
     factory() {
       const SEL = {
@@ -249,6 +283,8 @@
         badge: '[class*="statusTag"]',
         toggle: '[class*="bundleToggle"]',
         switch: '[role="switch"]',
+        toolbar: '[data-plugin-toolbar]',
+        note: '[class*="updatesNote"]',
       };
 
       /** Localised text of the official `statusUpdateAvailable` tag, all 8 shipped languages. */
@@ -349,7 +385,51 @@
   .pue-fact{display:flex;gap:8px;font-size:12px;line-height:18px}
   .pue-fact-k{flex:none;width:60px;font-size:11px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
   .pue-fact-v{min-width:0;color:var(--dsw-alias-label-secondary);word-break:break-word}
-  @media (prefers-reduced-motion:reduce){.pue-pop,.pue-notes{animation:none}.pue-spin{animation-duration:2.4s}}
+  .pue-all{appearance:none;flex:none;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);font-family:inherit;font-size:12px;line-height:20px;height:24px;padding:0 10px;border-radius:var(--dsw-radius-sm);color:var(--dsw-alias-label-secondary);cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;transition:background-color .12s ease,color .12s ease}
+  .pue-all:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+  .pue-all:active{background:var(--dsw-alias-interactive-bg-active)}
+  .pue-all:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);outline-offset:1px}
+  .pue-all:disabled{color:var(--dsw-alias-label-tertiary);cursor:default;background:var(--dsw-alias-bg-layer-2)}
+  .pue-all[aria-expanded="true"]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
+  .pue-panel{position:fixed;z-index:60;box-sizing:border-box;display:flex;flex-direction:column;width:min(440px,calc(100vw - 24px));max-height:min(540px,calc(100vh - 24px));background:var(--dsw-alias-bg-layer-3);border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-lg);box-shadow:var(--dsw-shadow-lv3);color:var(--dsw-alias-label-primary);animation:pue-in .12s ease-out}
+  .pue-panel-body{min-height:0;display:flex;flex-direction:column;overflow:auto}
+  .pue-bulk{list-style:none;margin:0;padding:2px 6px 8px;display:flex;flex-direction:column;gap:2px}
+  .pue-bulk-item{display:flex;flex-direction:column;border-radius:var(--dsw-radius-sm)}
+  .pue-bulk-item[data-open="true"]{background:var(--dsw-alias-bg-layer-2)}
+  .pue-bulk-head{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--dsw-radius-sm);min-width:0}
+  .pue-bulk-head:hover{background:var(--dsw-alias-interactive-bg-hover)}
+  .pue-bulk-name{min-width:0;flex:1;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pue-bulk-from{flex:none;font-size:11px;line-height:18px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+  .pue-bulk-arrow{flex:none;font-size:11px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+  .pue-bulk-pick{flex:none;display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 6px;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-xs);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font-family:inherit;font-size:11px;line-height:1;cursor:pointer;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pue-bulk-pick:hover{background:var(--dsw-alias-interactive-bg-hover)}
+  .pue-bulk-pick:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color);outline-offset:1px}
+  .pue-bulk-pick:disabled{opacity:.5;cursor:default}
+  .pue-bulk-pick[data-state="loading"]{color:var(--dsw-alias-label-tertiary)}
+  .pue-bulk-state{flex:none;width:14px;font-size:11px;line-height:18px;text-align:center;color:var(--dsw-alias-label-tertiary)}
+  .pue-bulk-state[data-tone="done"]{color:var(--dsw-alias-state-success-primary)}
+  .pue-bulk-state[data-tone="failed"]{color:var(--dsw-alias-state-error-primary)}
+  .pue-bulk-versions{padding:0 6px 6px 22px}
+  .pue-bulk-versions .pue-list{max-height:min(180px,32vh)}
+  .pue-bulk-foot{display:flex;flex-direction:column;gap:8px;padding:8px 10px 10px;border-top:1px solid var(--dsw-alias-border-l1)}
+  .pue-bulk-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
+  .pue-bulk-done{display:flex;flex-direction:column;gap:2px;max-height:min(240px,40vh);overflow:auto;padding:2px 12px 8px}
+  .pue-bulk-line{display:flex;align-items:baseline;gap:8px;font-size:12px;line-height:18px}
+  .pue-bulk-line .pue-bulk-name{flex:1}
+  .pue-bulk-line[data-tone="failed"] .pue-bulk-name{color:var(--dsw-alias-state-error-primary)}
+  .pue-bulk-line span:last-child{flex:none;font-size:11px;color:var(--dsw-alias-label-tertiary)}
+  .pue-panel-head{display:flex;align-items:center;gap:8px;padding:10px 10px 6px 12px;min-width:0}
+  .pue-panel-title{flex:1;min-width:0;font-size:13px;line-height:20px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pue-panel-body{position:relative}
+  .pue-panel .pue-list{max-height:none}
+  .pue-bulk-item[data-state="running"] .pue-bulk-name{color:var(--dsw-alias-label-primary)}
+  .pue-bulk-item[data-state="done"] .pue-bulk-name{color:var(--dsw-alias-label-secondary)}
+  .pue-bulk-item[data-state="failed"] .pue-bulk-name{color:var(--dsw-alias-state-error-primary)}
+  .pue-bulk-item[data-state="skipped"] .pue-bulk-name{color:var(--dsw-alias-label-tertiary)}
+  .pue-notes[data-fixed="true"]{position:fixed;right:auto;z-index:61}
+  .pue-panel-empty{display:flex;flex-direction:column;gap:8px;padding:14px 14px 16px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
+  .pue-panel-empty .pue-loading{padding:0}
+  @media (prefers-reduced-motion:reduce){.pue-pop,.pue-panel,.pue-notes{animation:none}.pue-spin{animation-duration:2.4s}}
   `;
 
       const DICT = {
@@ -413,6 +493,26 @@
           factBundle: '组合包',
           yes: '是',
           no: '否',
+          all: '一键更新',
+          allLabel: '一键更新全部可更新插件',
+          allTitle: '可更新的插件',
+          allChecking: '正在读取可更新的插件',
+          allNone: '当前没有可更新的插件',
+          allCount: '{count} 个插件可更新',
+          allRun: '更新 {count} 个',
+          allRunning: '正在更新',
+          allProgress: '第 {index}/{total} 个 · {name}',
+          allDone: '更新完成',
+          allDoneDetail: '{ok} 个已更新，{failed} 个失败',
+          allPartial: '部分插件未能更新',
+          allFailed: '失败',
+          allSkipped: '已跳过',
+          allStopped: '已停止，剩余 {count} 个未处理',
+          allStop: '停止',
+          allPick: '选择版本',
+          allHint: '按列表顺序逐个更新；展开插件可换版本或查看更新日志。',
+          allRetry: '重新读取',
+          allEmpty: '全部插件已是最新版本',
         },
         en: {
           entry: 'Update',
@@ -474,6 +574,26 @@
           factBundle: 'Bundle',
           yes: 'Yes',
           no: 'No',
+          all: 'Update all',
+          allLabel: 'Update every updatable plugin',
+          allTitle: 'Plugins with updates',
+          allChecking: 'Reading updatable plugins',
+          allNone: 'No plugin can be updated right now',
+          allCount: 'Updates available: {count}',
+          allRun: 'Update {count}',
+          allRunning: 'Updating',
+          allProgress: '{index}/{total} · {name}',
+          allDone: 'Updates finished',
+          allDoneDetail: '{ok} updated, {failed} failed',
+          allPartial: 'Some plugins could not be updated',
+          allFailed: 'Failed',
+          allSkipped: 'Skipped',
+          allStopped: 'Stopped with {count} left to process',
+          allStop: 'Stop',
+          allPick: 'Choose version',
+          allHint: 'Plugins update one after another. Expand one to change its version or read release notes.',
+          allRetry: 'Read again',
+          allEmpty: 'Everything is up to date',
         },
       };
 
@@ -537,6 +657,42 @@
         let scanFailures = 0;
         let disposed = false;
         let uid = 0;
+
+        /* Bulk update targets the official toolbar's “N plugins can be updated”
+         * note. That note is rendered by React only while every check is done,
+         * so both the button and this state have to survive being torn down and
+         * rebuilt at any moment. */
+        /* The bulk surface reuses the card popover's note renderer, which reads
+         * its subject from an `entry`-shaped object. `bulk.host` is that stand-in:
+         * it is never mounted, never scanned, and only carries the fields
+         * `notesNodes`/`loadNotes` actually touch. */
+        const bulk = {
+          open: false,
+          phase: 'idle',
+          items: [],
+          error: '',
+          cancelled: false,
+          expanded: null,
+          showPre: false,
+          currentName: '',
+          index: 0,
+          total: 0,
+          button: null,
+          anchor: null,
+          panel: null,
+          body: null,
+          foot: null,
+          hover: { open: 0, close: 0 },
+          host: {
+            uid: 'pue-bulk',
+            name: '',
+            popover: null,
+            bubble: null,
+            bubbleRow: null,
+            bubbleKey: null,
+            view: { list: null },
+          },
+        };
 
         const debug = readFlag('pueDebug');
 
@@ -632,6 +788,7 @@
            * An array is rejected, so the call shape below mirrors the wire. */
           const call = (method, args) => connection.rpc.call('/api', `pluginManager/${method}`, { args });
           return {
+            listBundles: () => call('listBundles', {}),
             listVersions: (name, options) => call('listVersions', { name, options }),
             updateBundle: (name, version, options) => call('updateBundle', { name, version, options }),
           };
@@ -668,6 +825,7 @@
             return envelope.result;
           };
           return {
+            listBundles: () => call('listBundles', {}),
             listVersions: (name, options) => call('listVersions', { name, options }),
             updateBundle: (name, version, options) => call('updateBundle', { name, version, options }),
           };
@@ -740,8 +898,13 @@
           if (raf) cancelAnimationFrame(raf);
           raf = 0;
           for (const li of [...entries.keys()]) removeEntry(li);
+          closeBulk();
+          bulk.button = null;
+          bulk.anchor = null;
           clearTimeout(hover.open);
           clearTimeout(hover.close);
+          clearTimeout(bulk.hover.open);
+          clearTimeout(bulk.hover.close);
           active = null;
           running = null;
         }
@@ -770,6 +933,7 @@
           const host = scope();
           if (!host) {
             for (const li of [...entries.keys()]) removeEntry(li);
+            ensureBulkButton();
             return;
           }
           const live = new Set();
@@ -794,6 +958,7 @@
           for (const li of [...entries.keys()]) {
             if (!live.has(li) || !li.isConnected) removeEntry(li);
           }
+          ensureBulkButton();
         }
 
         function hasBadge(li) {
@@ -873,7 +1038,9 @@
         }
 
         function syncBusy(entry) {
-          entry.button.disabled = Boolean(running) || isCardBusy(entry.li);
+          /* A bulk run and a card run write the same profile, so one disables
+           * the entry point of the other. */
+          entry.button.disabled = Boolean(running) || bulk.phase === 'running' || isCardBusy(entry.li);
         }
 
         function syncBusyAll() {
@@ -883,6 +1050,7 @@
         /* ---- popover shell ---- */
 
         function openPopover(entry) {
+          if (bulk.open && bulk.phase !== 'running') closeBulk();
           if (active && active !== entry) closePopover(active);
           ensurePopover(entry);
           active = entry;
@@ -1562,7 +1730,7 @@
 
         async function runUpdate(entry) {
           const view = entry.view;
-          if (!view.selected || !view.list || running) return;
+          if (!view.selected || !view.list || running || bulk.phase === 'running') return;
           const from = view.list.installed || '';
           const to = view.selected;
           const registry = view.list.registry || undefined;
@@ -1595,6 +1763,670 @@
             setTimeout(() => {
               if (!disposed) schedule();
             }, 600);
+          }
+        }
+
+        /* ---- bulk update: the toolbar's "N plugins can be updated" button ---- */
+
+        /* The official note is React state: it exists only while every check has
+         * finished, so pressing Refresh makes it vanish. The button therefore has
+         * to come and go with the note instead of being mounted once, exactly
+         * like the per-card buttons. Losing the note must never abandon a run
+         * that is already in flight. */
+        function ensureBulkButton() {
+          const toolbar = document.querySelector(SEL.toolbar);
+          const note = toolbar ? toolbar.querySelector(SEL.note) : null;
+          if (!note) {
+            if (bulk.button && bulk.button.isConnected) bulk.button.remove();
+            bulk.button = null;
+            bulk.anchor = toolbar || null;
+            if (!toolbar && bulk.phase !== 'running') closeBulk();
+            else if (bulk.open) positionBulk();
+            return;
+          }
+          if (bulk.button && bulk.button.isConnected) {
+            if (bulk.button.previousElementSibling !== note) note.after(bulk.button);
+            bulk.anchor = note;
+            syncBulkButton();
+            return;
+          }
+          const button = el('button', {
+            class: 'pue-all',
+            type: 'button',
+            'aria-haspopup': 'dialog',
+            'aria-expanded': 'false',
+            title: t('allLabel'),
+            onpointerdown: (event) => event.stopPropagation(),
+            onclick: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (bulk.open) closeBulk({ restoreFocus: true });
+              else openBulk();
+            },
+          }, t('all'));
+          note.after(button);
+          bulk.button = button;
+          bulk.anchor = note;
+          syncBulkButton();
+        }
+
+        function syncBulkButton() {
+          if (!bulk.button) return;
+          bulk.button.disabled = bulk.phase === 'running';
+          bulk.button.setAttribute('aria-expanded', bulk.open ? 'true' : 'false');
+        }
+
+        function openBulk() {
+          if (bulk.open) return;
+          if (active) closePopover(active);
+          bulk.open = true;
+          ensureBulkPanel();
+          syncBulkButton();
+          if (!bulk.items.length && bulk.phase !== 'running' && bulk.phase !== 'done') loadBulk();
+          else renderBulk();
+        }
+
+        function closeBulk(options) {
+          const wasOpen = bulk.open;
+          bulk.open = false;
+          hideBulkNotes();
+          if (bulk.panel) {
+            bulk.panel.remove();
+            bulk.panel = null;
+            bulk.body = null;
+            bulk.foot = null;
+            bulk.host.popover = null;
+          }
+          if (bulk.phase === 'done') {
+            bulk.phase = 'idle';
+            bulk.items = [];
+            bulk.index = 0;
+            bulk.total = 0;
+            bulk.currentName = '';
+          }
+          syncBulkButton();
+          if (wasOpen && options && options.restoreFocus && bulk.button) {
+            try {
+              bulk.button.focus();
+            } catch {}
+          }
+        }
+
+        function ensureBulkPanel() {
+          if (bulk.panel) return bulk.panel;
+          const head = el('div', { class: 'pue-panel-head' },
+            el('span', { class: 'pue-panel-title' }, t('allTitle')),
+            el('button', {
+              class: 'pue-x',
+              type: 'button',
+              'aria-label': t('close'),
+              onclick: (event) => {
+                event.stopPropagation();
+                closeBulk({ restoreFocus: true });
+              },
+            }, '×'));
+          const body = el('div', { class: 'pue-panel-body' });
+          const foot = el('div', { class: 'pue-bulk-foot' });
+          const panel = el('div', {
+            class: 'pue-panel',
+            role: 'dialog',
+            'aria-modal': 'false',
+            'aria-label': t('allTitle'),
+          }, head, body, foot);
+          panel.addEventListener('pointerdown', (event) => event.stopPropagation());
+          panel.addEventListener('click', (event) => event.stopPropagation());
+          panel.addEventListener('keydown', onPanelKeydown);
+          document.body.append(panel);
+          bulk.panel = panel;
+          bulk.body = body;
+          bulk.foot = foot;
+          bulk.host.popover = panel;
+          return panel;
+        }
+
+        /* Same source as the official page (`pluginManager/listBundles`); reading
+         * the DOM would only see the cards that happen to be rendered, and the
+         * note counts packages that may be far below the fold. */
+        function unwrapAnswer(answer) {
+          if (answer && answer.ok === false) {
+            const error = answer.error || {};
+            throw new Error(error.message || error.code || t('unknown'));
+          }
+          if (answer && Object.prototype.hasOwnProperty.call(answer, 'value')) return answer.value;
+          return answer;
+        }
+
+        async function loadBulk() {
+          bulk.phase = 'loading';
+          bulk.error = '';
+          bulk.items = [];
+          bulk.expanded = null;
+          renderBulk();
+          try {
+            const bundles = unwrapAnswer(await viaTiers('listBundles', []));
+            bulk.items = updatableBundles(bundles).map((bundle) => ({
+              name: bundle.name,
+              from: bundle.from,
+              to: '',
+              list: null,
+              phase: 'idle',
+              state: 'idle',
+              error: '',
+              outcome: null,
+            }));
+            bulk.phase = bulk.items.length ? 'listed' : 'empty';
+            for (const item of bulk.items) primeBulkVersions(item);
+          } catch (error) {
+            bulk.phase = 'error';
+            bulk.error = userMessage(error);
+            warn('listBundles', error);
+          }
+          renderBulk();
+          syncBulkButton();
+        }
+
+        /* Versions load in the background so the list is usable immediately and
+         * every row already knows its default target by the time a run starts. */
+        function primeBulkVersions(item) {
+          const cached = fresh(versionCache.get(item.name));
+          if (cached) {
+            applyBulkList(item, cached);
+            if (bulk.open) renderBulk();
+            return;
+          }
+          listVersions(item.name, versionPending).then((list) => {
+            if (disposed) return;
+            if (list && list.status === 'listed') versionCache.set(item.name, { list, at: Date.now() });
+            applyBulkList(item, list);
+            if (bulk.open) renderBulk();
+          }).catch((error) => {
+            if (disposed) return;
+            item.phase = 'error';
+            item.error = userMessage(error);
+            warn(`listVersions(${item.name})`, error);
+            if (bulk.open) renderBulk();
+          });
+        }
+
+        function applyBulkList(item, list) {
+          item.list = list || null;
+          if (!list || list.status !== 'listed') {
+            item.phase = list && list.status === 'refused' ? 'refused' : 'error';
+            item.to = '';
+            return;
+          }
+          item.phase = 'listed';
+          const shown = filterPrerelease(list.versions, bulk.showPre);
+          /* Same rule the official page applies: the default target is the
+           * newest version that is a bundle, installable here, and not
+           * deprecated. Everything else stays listed but unselected. */
+          const pick = shown.find((candidate) => !installBlocker(candidate) && !candidate.deprecated);
+          item.to = pick ? pick.version : '';
+        }
+
+        function renderBulk() {
+          if (!bulk.panel || !bulk.body || !bulk.foot) return;
+          /* A version check finishing in the background rebuilds this body and
+           * therefore replaces the row the notes bubble is pinned to. Remember
+           * which version it described, then re-attach it to the equivalent row
+           * so hovering does not blink out mid-read. */
+          const pinned = bulk.host.bubbleKey;
+          bulk.body.replaceChildren(...bulkBodyNodes());
+          bulk.foot.replaceChildren(...bulkFootNodes());
+          const row = pinned ? rowFor(pinned) : null;
+          if (row && bulk.host.bubble) {
+            bulk.host.bubbleRow = row;
+            row.setAttribute('aria-describedby', bulk.host.bubble.id);
+            positionFixedNotes(bulk.host.bubble, row);
+          } else {
+            hideBulkNotes();
+          }
+          positionBulk();
+        }
+
+        function rowFor(key) {
+          if (!bulk.body || !key) return null;
+          const item = [...bulk.body.querySelectorAll('.pue-bulk-item')]
+            .find((node) => node.getAttribute('data-name') === key.name);
+          if (!item) return null;
+          return [...item.querySelectorAll('.pue-row')]
+            .find((node) => node.getAttribute('data-version') === key.version) || null;
+        }
+
+        function bulkBodyNodes() {
+          if (bulk.phase === 'loading') {
+            return [el('div', { class: 'pue-loading' }, el('span', { class: 'pue-spin' }), t('allChecking'))];
+          }
+          if (bulk.phase === 'error') {
+            return [el('div', { class: 'pue-panel-empty' },
+              el('div', {}, bulk.error || t('network')),
+              el('div', {}, el('button', {
+                class: 'pue-ghost',
+                type: 'button',
+                onclick: () => loadBulk(),
+              }, t('allRetry'))))];
+          }
+          if (bulk.phase === 'empty') return [el('div', { class: 'pue-panel-empty' }, t('allEmpty'))];
+          if (bulk.phase === 'done') return [bulkDoneNodes()];
+          return [el('ul', { class: 'pue-bulk', role: 'list' }, bulk.items.map((item) => bulkItemNode(item)))];
+        }
+
+        function bulkItemNode(item) {
+          const open = bulk.expanded === item.name;
+          const busy = bulk.phase === 'running';
+          const moved = item.to && item.to !== item.from;
+          const pick = el('button', {
+            class: 'pue-bulk-pick',
+            type: 'button',
+            'aria-expanded': open ? 'true' : 'false',
+            'aria-label': t('allPick'),
+            'data-state': item.phase === 'listed' ? 'ready' : 'loading',
+            disabled: busy || item.state === 'running',
+            onclick: (event) => {
+              event.stopPropagation();
+              toggleBulkItem(item);
+            },
+          }, item.phase === 'listed' ? (item.to || t('allPick')) : t('checking'));
+          const head = el('div', {
+            class: 'pue-bulk-head',
+            role: 'button',
+            tabindex: busy ? undefined : '0',
+            onclick: () => {
+              if (!busy) toggleBulkItem(item);
+            },
+            onkeydown: (event) => {
+              if (event.target !== head) return;
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              if (!busy) toggleBulkItem(item);
+            },
+          },
+          bulkStateNode(item),
+          el('span', { class: 'pue-bulk-name', title: item.name }, item.name),
+          el('span', { class: 'pue-bulk-from' }, item.from || '—'),
+          moved ? el('span', { class: 'pue-bulk-arrow' }, '→') : null,
+          pick);
+          const node = el('div', {
+            class: 'pue-bulk-item',
+            'data-name': item.name,
+            'data-open': open ? 'true' : 'false',
+            'data-state': item.state,
+          }, head);
+          if (item.error) node.append(el('div', { class: 'pue-bulk-note' }, item.error));
+          else if (item.phase === 'listed' && !item.to && item.state === 'idle') {
+            /* Listed but nothing installable here: say it once, up front, instead
+             * of letting the run silently skip the package later. */
+            const versions = (item.list && item.list.versions) || [];
+            node.append(el('div', { class: 'pue-bulk-note' },
+              versions.length ? t('noneInstallable') : t('latest')));
+          }
+          if (open) node.append(bulkVersionsNode(item));
+          return el('li', { role: 'none' }, node);
+        }
+
+        function toggleBulkItem(item) {
+          bulk.expanded = bulk.expanded === item.name ? null : item.name;
+          hideBulkNotes();
+          renderBulk();
+        }
+
+        function bulkStateNode(item) {
+          if (item.state === 'done') return el('span', { class: 'pue-bulk-state', 'data-tone': 'done' }, '✓');
+          if (item.state === 'failed') return el('span', { class: 'pue-bulk-state', 'data-tone': 'failed' }, '×');
+          if (item.state === 'running') return el('span', { class: 'pue-bulk-state' }, el('span', { class: 'pue-spin' }));
+          if (item.state === 'skipped') return el('span', { class: 'pue-bulk-state' }, '–');
+          return el('span', { class: 'pue-bulk-state' });
+        }
+
+        /* Reuses the card's version row so both surfaces show the same tags,
+         * dates, blockers and release-note tooltips. */
+        function bulkVersionsNode(item) {
+          const box = el('div', { class: 'pue-bulk-versions' });
+          if (item.phase === 'idle' || item.phase === 'loading') {
+            box.append(el('div', { class: 'pue-loading' }, el('span', { class: 'pue-spin' }), t('checking')));
+            return box;
+          }
+          if (item.phase === 'refused' || item.phase === 'error') {
+            box.append(el('div', { class: 'pue-loading' },
+              item.error || (item.list && item.list.reason) || t('unknown')));
+            return box;
+          }
+          const list = item.list || { versions: [] };
+          const shown = filterPrerelease(list.versions, bulk.showPre);
+          if ((list.versions || []).some((candidate) => candidate && candidate.prerelease)) {
+            box.append(el('button', {
+              class: 'pue-ghost',
+              type: 'button',
+              onclick: (event) => {
+                event.stopPropagation();
+                bulk.showPre = !bulk.showPre;
+                for (const other of bulk.items) {
+                  if (other.phase === 'listed') applyBulkList(other, other.list);
+                }
+                hideBulkNotes();
+                renderBulk();
+              },
+            }, bulk.showPre ? t('hidePrerelease') : t('showPrerelease')));
+          }
+          if (!shown.length) {
+            box.append(el('div', { class: 'pue-loading' },
+              list.versions && list.versions.length ? t('noneInstallable') : t('latest')));
+            return box;
+          }
+          const listbox = el('ul', { class: 'pue-list', role: 'listbox', 'aria-label': t('versions') });
+          for (const candidate of shown) {
+            listbox.append(el('li', { class: 'pue-li', role: 'none' }, versionRow({
+              item,
+              selected: item.to,
+              onPick: (version) => {
+                item.to = version;
+                hideBulkNotes();
+                renderBulk();
+              },
+            }, candidate)));
+          }
+          box.append(listbox);
+          return box;
+        }
+
+        function bulkDoneNodes() {
+          return el('div', { class: 'pue-bulk-done' }, bulk.items.map((item) => {
+            const tone = item.state === 'failed' ? 'failed' : item.state === 'done' ? 'done' : '';
+            const detail = item.state === 'done'
+              ? (item.to || '')
+              : item.state === 'skipped'
+                ? t('allSkipped')
+                : (item.error || t('allFailed'));
+            return el('div', { class: 'pue-bulk-line', 'data-tone': tone },
+              el('span', { class: 'pue-bulk-name', title: item.name }, item.name),
+              el('span', {}, detail));
+          }));
+        }
+
+        function bulkFootNodes() {
+          if (bulk.phase === 'running') {
+            return [
+              el('div', { class: 'pue-bulk-note' },
+                t('allProgress', { index: bulk.index, total: bulk.total, name: bulk.currentName || '—' })),
+              el('div', { class: 'pue-actions' },
+                el('span', { class: 'pue-spacer' }),
+                el('button', {
+                  class: 'pue-ghost',
+                  type: 'button',
+                  onclick: () => {
+                    /* A request already sent cannot be recalled; the flag only
+                     * stops the next package, which is the safe thing to promise. */
+                    bulk.cancelled = true;
+                    renderBulk();
+                  },
+                }, t('allStop'))),
+            ];
+          }
+          if (bulk.phase === 'done') {
+            const summary = bulkSummary(bulk.items);
+            return [
+              el('div', { class: 'pue-bulk-note' },
+                summary.failed
+                  ? `${t('allPartial')} · ${t('allDoneDetail', summary)}`
+                  : t('allDoneDetail', summary)),
+              el('div', { class: 'pue-actions' },
+                el('span', { class: 'pue-spacer' }),
+                el('button', {
+                  class: 'pue-primary',
+                  type: 'button',
+                  onclick: () => closeBulk({ restoreFocus: true }),
+                }, t('finish'))),
+            ];
+          }
+          if (bulk.phase !== 'listed') return [];
+          const ready = bulk.items.filter((item) => item.state === 'idle' && item.to).length;
+          return [
+            el('div', { class: 'pue-bulk-note' }, t('allHint')),
+            el('div', { class: 'pue-actions' },
+              el('span', { class: 'pue-spacer' }),
+              el('button', {
+                class: 'pue-primary',
+                type: 'button',
+                disabled: ready === 0,
+                onclick: () => runBulk(),
+              }, t('allRun', { count: ready }))),
+          ];
+        }
+
+        /* One request at a time, strictly sequential: `updateBundle` rewrites the
+         * same profile, so concurrent installs would fight over it. The card-level
+         * `running` slot stays untouched — a bulk run drives this panel's own
+         * progress line instead of opening a card popover. */
+        async function runBulk() {
+          if (bulk.phase === 'running') return;
+          if (!bulk.items.some((item) => item.state === 'idle')) return;
+          bulk.phase = 'running';
+          bulk.cancelled = false;
+          bulk.currentName = '';
+          bulk.index = 0;
+          bulk.total = bulk.items.filter((item) => item.state === 'idle').length;
+          bulk.expanded = null;
+          hideBulkNotes();
+          renderBulk();
+          syncBulkButton();
+          for (const item of bulk.items) {
+            if (item.state !== 'idle') continue;
+            if (bulk.cancelled) {
+              item.state = 'skipped';
+              renderBulk();
+              continue;
+            }
+            if (!item.to) {
+              item.state = 'skipped';
+              item.error = item.phase === 'listed' ? t('noneInstallable') : t('unknown');
+              renderBulk();
+              continue;
+            }
+            bulk.index += 1;
+            bulk.currentName = item.name;
+            item.state = 'running';
+            item.error = '';
+            renderBulk();
+            const registry = (item.list && item.list.registry) || undefined;
+            const requestId = makeRequestId();
+            let answer;
+            try {
+              answer = await viaTiers('updateBundle', [item.name, item.to, { registry, requestId }], { mutating: true });
+            } catch (error) {
+              answer = { ok: false, error: { message: userMessage(error) } };
+            }
+            if (disposed) return;
+            const outcome = outcomeOf(answer);
+            item.outcome = outcome;
+            const ok = outcome.kind === 'done' || outcome.kind === 'restart';
+            item.state = ok ? 'done' : 'failed';
+            item.error = ok ? '' : bulkOutcomeText(outcome);
+            versionCache.delete(item.name);
+            renderBulk();
+            if (ok) schedule();
+          }
+          bulk.phase = 'done';
+          bulk.currentName = '';
+          renderBulk();
+          syncBulkButton();
+          schedule();
+        }
+
+        /* Every outcome the official page can report, in one place. */
+        function bulkOutcomeText(outcome) {
+          if (!outcome) return t('unknown');
+          if (outcome.kind === 'done') return t('done', { version: outcome.to });
+          if (outcome.kind === 'restart') return t('restart', { version: outcome.to });
+          if (outcome.kind === 'refused') return t('refused', { version: outcome.to });
+          if (outcome.kind === 'removeFailed') return t('removeFailed', { version: outcome.from });
+          if (outcome.kind === 'restored') return t('restored', { version: outcome.from });
+          if (outcome.kind === 'broken') return t('broken');
+          return outcome.reason ? `${t('lost')} · ${outcome.reason}` : t('lost');
+        }
+
+        function onPanelKeydown(event) {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            if (bulk.host.bubble) hideBulkNotes();
+            else if (bulk.phase === 'running') {
+              bulk.cancelled = true;
+              renderBulk();
+            } else closeBulk({ restoreFocus: true });
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          const focusable = [...bulk.panel.querySelectorAll('button:not([disabled]),[tabindex]:not([tabindex="-1"])')];
+          if (!focusable.length) return;
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          } else if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          }
+        }
+
+        function positionBulk() {
+          const panel = bulk.panel;
+          if (!panel) return;
+          const anchor = bulk.button && bulk.button.isConnected ? bulk.button : bulk.anchor;
+          const rect = anchor && anchor.isConnected
+            ? anchor.getBoundingClientRect()
+            : { left: window.innerWidth - 24, right: window.innerWidth - 24, top: 48, bottom: 48 };
+          panel.removeAttribute('data-flip');
+          const width = panel.offsetWidth;
+          const height = panel.offsetHeight;
+          const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+          let top = rect.bottom + 6;
+          if (top + height > window.innerHeight - 8 && rect.top - 6 - height >= 8) {
+            top = rect.top - 6 - height;
+            panel.setAttribute('data-flip', 'up');
+          }
+          panel.style.left = `${left}px`;
+          panel.style.top = `${Math.max(8, top)}px`;
+        }
+
+        /* The panel scrolls, so its tooltip is placed in viewport space
+         * (`data-fixed`) instead of at `row.offsetTop` inside a clipped box. */
+        function positionFixedNotes(bubble, row) {
+          if (!bubble || !row) return;
+          const rect = row.getBoundingClientRect();
+          const width = bubble.offsetWidth || 320;
+          const height = bubble.offsetHeight || 200;
+          const left = rect.left - width - 8;
+          const right = rect.right + 8;
+          const x = left >= 8 ? left : Math.min(right, window.innerWidth - width - 8);
+          const y = Math.max(8, Math.min(rect.top, window.innerHeight - 8 - height));
+          bubble.style.left = `${Math.max(8, x)}px`;
+          bubble.style.top = `${y}px`;
+        }
+
+        function hideBulkNotes() {
+          clearTimeout(bulk.hover.open);
+          clearTimeout(bulk.hover.close);
+          bulk.host.bubbleKey = null;
+          if (bulk.host.bubble) {
+            bulk.host.bubble.remove();
+            bulk.host.bubble = null;
+            bulk.host.bubbleRow = null;
+          }
+        }
+
+        function slugOf(name) {
+          return String(name).replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'pkg';
+        }
+
+        /* The card's row renderer, with the panel supplying the target and the
+         * tooltip host: rows here must not rerender the card's own popover. */
+        function versionRow(spec, candidate) {
+          const blocker = installBlocker(candidate);
+          const selected = spec.selected === candidate.version;
+          const tags = el('span', { class: 'pue-row-main' },
+            el('span', { class: 'pue-v' }, candidate.version),
+            candidate.prerelease ? el('span', { class: 'pue-tag' }, t('prerelease')) : null,
+            candidate.deprecated ? el('span', { class: 'pue-tag', 'data-tone': 'warn' }, t('deprecated')) : null,
+            candidate.incompatible ? el('span', { class: 'pue-tag', 'data-tone': 'error' }, t('blocked')) : null,
+            candidate.publishedAt ? el('span', { class: 'pue-date' }, formatDate(candidate.publishedAt)) : null,
+            el('span', { class: 'pue-tick', 'aria-hidden': 'true' }, '✓'));
+          const children = [tags];
+          if (blocker) {
+            children.push(el('span', { class: 'pue-why' },
+              blocker === 'notBundle' ? t('notBundle') : t('blocked')));
+          }
+          const row = el('button', {
+            class: 'pue-row',
+            type: 'button',
+            role: 'option',
+            'aria-selected': selected ? 'true' : 'false',
+            'aria-disabled': blocker ? 'true' : 'false',
+            'data-version': candidate.version,
+            onclick: (event) => {
+              event.stopPropagation();
+              if (blocker) return;
+              spec.onPick(candidate.version);
+            },
+          }, children);
+          wireBulkNotes(spec.item, candidate, row);
+          return row;
+        }
+
+        function wireBulkNotes(item, candidate, row) {
+          row.addEventListener('pointerenter', () => {
+            clearTimeout(bulk.hover.close);
+            clearTimeout(bulk.hover.open);
+            bulk.hover.open = setTimeout(() => drawBulkNotes(item, candidate, row), HOVER_OPEN_MS);
+          });
+          row.addEventListener('pointerleave', () => {
+            clearTimeout(bulk.hover.open);
+            scheduleHideBulkNotes();
+          });
+          row.addEventListener('focus', () => {
+            clearTimeout(bulk.hover.close);
+            clearTimeout(bulk.hover.open);
+            drawBulkNotes(item, candidate, row);
+          });
+          row.addEventListener('blur', () => scheduleHideBulkNotes());
+        }
+
+        function scheduleHideBulkNotes() {
+          clearTimeout(bulk.hover.close);
+          bulk.hover.close = setTimeout(() => hideBulkNotes(), HOVER_CLOSE_MS);
+        }
+
+        function drawBulkNotes(item, candidate, row) {
+          if (!bulk.panel || !row.isConnected) return;
+          let bubble = bulk.host.bubble;
+          if (!bubble) {
+            bubble = el('div', { class: 'pue-notes', role: 'tooltip', 'data-fixed': 'true' });
+            bubble.addEventListener('pointerenter', () => clearTimeout(bulk.hover.close));
+            bubble.addEventListener('pointerleave', () => scheduleHideBulkNotes());
+            bulk.panel.append(bubble);
+            bulk.host.bubble = bubble;
+          }
+          bulk.host.bubbleRow = row;
+          bulk.host.bubbleKey = { name: item.name, version: candidate.version };
+          bulk.host.name = item.name;
+          bulk.host.view.list = item.list;
+          if (!bubble.id) bubble.id = `pue-notes-${slugOf(item.name)}`;
+          row.setAttribute('aria-describedby', bubble.id);
+          bubble.replaceChildren(...notesNodes(bulk.host, candidate));
+          markScrollable(bubble);
+          positionFixedNotes(bubble, row);
+          if (!candidate.__notes) {
+            loadNotes(bulk.host, candidate).then(() => {
+              /* The pointer may have moved on (or the row been rebuilt) while
+               * the release notes were fetched; only repaint if this bubble is
+               * still describing the very same version. */
+              const key = bulk.host.bubbleKey;
+              if (bulk.host.bubble !== bubble || !key || key.version !== candidate.version) return;
+              const live = bulk.host.bubbleRow;
+              if (!live || !live.isConnected) return;
+              bubble.replaceChildren(...notesNodes(bulk.host, candidate));
+              markScrollable(bubble);
+              positionFixedNotes(bubble, live);
+            });
           }
         }
 
@@ -1637,16 +2469,36 @@
         }
 
         function onDocumentPointerDown(event) {
-          if (!active) return;
           const target = event.target;
           if (!(target instanceof Node)) return;
+          if (bulk.open) {
+            if (bulk.panel && bulk.panel.contains(target)) return;
+            if (bulk.button && bulk.button.contains(target)) return;
+            if (bulk.host.bubble && bulk.host.bubble.contains(target)) return;
+            /* A run keeps its panel: closing it would hide the only progress
+             * line the user has. */
+            if (bulk.phase !== 'running') {
+              closeBulk();
+              if (!active) return;
+            }
+          }
+          if (!active) return;
           if (active.slot.contains(target)) return;
           if (active.popover && active.popover.contains(target)) return;
           closePopover(active);
         }
 
         function onDocumentKeydown(event) {
-          if (!active || event.key !== 'Escape') return;
+          if (event.key !== 'Escape') return;
+          if (bulk.open) {
+            if (bulk.host.bubble) hideBulkNotes();
+            else if (bulk.phase === 'running') {
+              bulk.cancelled = true;
+              renderBulk();
+            } else closeBulk({ restoreFocus: true });
+            return;
+          }
+          if (!active) return;
           if (active.bubble) {
             hideNotes(active);
             return;
@@ -1655,6 +2507,10 @@
         }
 
         function onViewportChange() {
+          if (bulk.open) {
+            positionBulk();
+            if (bulk.host.bubbleRow) positionFixedNotes(bulk.host.bubble, bulk.host.bubbleRow);
+          }
           if (!active) return;
           position(active);
           if (active.bubbleRow) positionNotes(active, active.bubbleRow);

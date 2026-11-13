@@ -47,6 +47,37 @@ test('dom: service transport renders the button, versions, hover notes and updat
 });
 
 /**
+ * The bulk surface hangs off the toolbar instead of a card: a button after the
+ * official "N plugins can be updated" note, a panel listing every updatable
+ * package, a per-item version picker, and release notes on those version rows.
+ * The note is React state and vanishes during a refresh, so the harness removes
+ * it mid-flow to prove the panel and a running batch survive.
+ */
+test('dom: the toolbar offers one-click updates for every updatable plugin', { skip: noJsdom || noCordis }, () => {
+  const output = run('harness-bulk.mjs');
+  assert.match(output, /1 button 一键更新 afterNote true/);
+  assert.match(output, /2 panel true expanded true/);
+  assert.match(output, /2c names \[ 'dsh-free-search', 'dsh-mcp-connector', 'dsh-model-think-level' \]/);
+  /* A package the Host lists but cannot install here must be called out, not
+   * silently dropped from the run. */
+  assert.match(output, /2e blocked \[ 'dsh-model-think-level\|没有可直接安装的新版本' \]/);
+  assert.match(output, /3b rows \[ '0\.9\.43', '0\.9\.42' \]/);
+  assert.match(output, /4 hover true 0\.9\.43发布于/);
+  assert.match(output, /5 afterLeave false/);
+  /* A version check finishing in the background rebuilds the panel body. The
+   * open notes must stay pinned to the same package+version row instead of
+   * vanishing mid-read. */
+  assert.match(output, /5b reopened 0\.9\.43发布于/);
+  assert.match(output, /5c survived true 0\.9\.43发布于.* pinned 0\.9\.43/);
+  assert.match(output, /6 retarget \[ '0\.9\.42', '0\.2\.100', '选择版本' \]/);
+  assert.match(output, /7 noteGone button false panel true/);
+  assert.match(output, /\["updateBundle","dsh-free-search","0\.9\.42"\],\["updateBundle","dsh-mcp-connector","0\.2\.100"\]/);
+  assert.match(output, /9b foot 2 个已更新，0 个失败/);
+  assert.match(output, /9d panelAlive true/);
+  assert.match(output, /'dsh-model-think-level:已跳过'/);
+});
+
+/**
  * DSH 0.2.2-rc.2 renamed every CSS-module class prefix (`w6M7KW_` -> `X_2TxG_`).
  * The plugin never matches a full class name, only substrings such as
  * `[class*="cardEnd"]`, so the entry must mount identically on the new build.
