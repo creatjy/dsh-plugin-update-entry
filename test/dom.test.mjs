@@ -78,6 +78,31 @@ test('dom: the toolbar offers one-click updates for every updatable plugin', { s
 });
 
 /**
+ * A failed version check must not strand a bulk row. The card never had this
+ * bug because opening it re-queries whenever the cache is stale and offers a
+ * 重试 button when the query failed; the panel queried once at list time, so a
+ * single transient failure left the row permanently showing "正在检查更新" and
+ * clicking it produced nothing. This harness fails the check twice — at list
+ * time and again on the retry that expanding triggers — and then proves the
+ * row's own 重试 recovers and the update goes through.
+ */
+test('dom: a failed version check in the bulk panel is recoverable', { skip: noJsdom || noCordis }, () => {
+  const output = run('harness-bulk-retry.mjs');
+  assert.match(output, /1 button 一键更新/);
+  /* Not "正在检查更新": a failure has to be labelled as one. */
+  assert.match(output, /2 failedPick 重试/);
+  assert.match(output, /2b note 与 DSH 的连接尚未就绪/);
+  /* Expanding re-queries, exactly like opening the card. */
+  assert.match(output, /3 open true/);
+  assert.match(output, /3b attempts 2/);
+  assert.match(output, /4 retryOffered true/);
+  assert.match(output, /4b rows \[ '0\.84\.1', '0\.84\.0' \]/);
+  assert.match(output, /4c attempts 3/);
+  assert.match(output, /4d pick 0\.84\.1/);
+  assert.match(output, /\["updateBundle","dsh-context","0\.84\.1"\]/);
+});
+
+/**
  * DSH 0.2.2-rc.2 renamed every CSS-module class prefix (`w6M7KW_` -> `X_2TxG_`).
  * The plugin never matches a full class name, only substrings such as
  * `[class*="cardEnd"]`, so the entry must mount identically on the new build.

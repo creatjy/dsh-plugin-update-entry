@@ -165,15 +165,15 @@ locale/{zh,en}.json   显示元数据
 test/pure.test.mjs    纯函数（版本解析、仓库解析、结局映射、错误清洗…）
 test/engines.test.mjs engines.dsh 的 semver 边界
 test/dom.test.mjs     DOM 回归入口
-test/harness/         jsdom harness：服务层 / connection.rpc / 仅 fetch / 重复嵌入 / 一键更新
+test/harness/         jsdom harness：服务层 / connection.rpc / 仅 fetch / 重复嵌入 / 一键更新 / 版本检查失败恢复
 ```
 
 ```sh
 npm install     # 只装 devDependencies：jsdom + @deepseek-ai/cordis + semver
-npm test        # 20 条纯函数 + 6 条 DOM/脚本回归 + 2 条 engines 边界
+npm test        # 20 条纯函数 + 7 条 DOM/脚本回归 + 2 条 engines 边界
 ```
 
-`npm test` 不需要 DSH 在跑。五条 DOM 回归分别在 jsdom 里还原官方卡片与工具栏结构，覆盖插件在浏览器里可能遇到的传输形态：
+`npm test` 不需要 DSH 在跑。六条 DOM 回归分别在 jsdom 里还原官方卡片与工具栏结构，覆盖插件在浏览器里可能遇到的传输形态：
 
 | harness | 上下文 | 证明什么 |
 | --- | --- | --- |
@@ -182,6 +182,7 @@ npm test        # 20 条纯函数 + 6 条 DOM/脚本回归 + 2 条 engines 边�
 | `harness-fetch.mjs` | 所有服务都读不到，只剩 `fetch` | `POST /api/pluginManager/<method>` 单独就能撑起完整流程 |
 | `harness-duplicate.mjs` | `node:vm`，一个脚本里放两份本 bundle | 重复嵌入不再是解析错误，本包只注册一次，别的包照常注册，无关的重复仍然抛错 |
 | `harness-bulk.mjs` | jsdom，工具栏 note + 可更新清单 | 按钮挂在 note 之后、清单覆盖全部可更新包、换版本只影响该项、后台版本检查重建列表时悬停气泡仍在、顺序执行并汇总 |
+| `harness-bulk-retry.mjs` | jsdom，版本检查连续失败两次 | 失败下标成「重试」而不是「正在检查更新」；展开会重新查询（与卡片一致）；行内的「重试」能恢复并进入更新流程 |
 
 单独跑某一条：`node test/harness/harness-fetch.mjs`。缺 devDependencies 时这些会跳过，纯函数照跑。
 

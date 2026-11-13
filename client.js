@@ -412,7 +412,8 @@
   .pue-bulk-versions{padding:0 6px 6px 22px}
   .pue-bulk-versions .pue-list{max-height:min(180px,32vh)}
   .pue-bulk-foot{display:flex;flex-direction:column;gap:8px;padding:8px 10px 10px;border-top:1px solid var(--dsw-alias-border-l1)}
-  .pue-bulk-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary)}
+  .pue-bulk-note{font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary);padding:0 8px 6px}
+  .pue-bulk-note[data-tone="error"]{color:var(--dsw-alias-state-error-primary)}
   .pue-bulk-done{display:flex;flex-direction:column;gap:2px;max-height:min(240px,40vh);overflow:auto;padding:2px 12px 8px}
   .pue-bulk-line{display:flex;align-items:baseline;gap:8px;font-size:12px;line-height:18px}
   .pue-bulk-line .pue-bulk-name{flex:1}
@@ -1228,8 +1229,8 @@
           throw new Error(`${t('rpcUnavailable')}（pue ${BUILD} · ${diagnostics()}${detail}）`);
         }
 
-        function listVersions(name, pending) {
-          const shared = pending.get(name);
+        function listVersions(name, pending, force) {
+          const shared = force ? null : pending.get(name);
           if (shared) return shared;
           const task = (async () => {
             const answer = await viaTiers('listVersions', [name, {}]);
@@ -1927,14 +1928,16 @@
 
         /* Versions load in the background so the list is usable immediately and
          * every row already knows its default target by the time a run starts. */
-        function primeBulkVersions(item) {
-          const cached = fresh(versionCache.get(item.name));
+        function primeBulkVersions(item, force) {
+          const cached = force ? null : fresh(versionCache.get(item.name));
           if (cached) {
             applyBulkList(item, cached);
             if (bulk.open) renderBulk();
             return;
           }
-          listVersions(item.name, versionPending).then((list) => {
+          item.phase = 'loading';
+          item.error = '';
+          listVersions(item.name, versionPending, force).then((list) => {
             if (disposed) return;
             if (list && list.status === 'listed') versionCache.set(item.name, { list, at: Date.now() });
             applyBulkList(item, list);
@@ -2020,13 +2023,15 @@
             type: 'button',
             'aria-expanded': open ? 'true' : 'false',
             'aria-label': t('allPick'),
-            'data-state': item.phase === 'listed' ? 'ready' : 'loading',
+            'data-state': item.phase === 'listed' ? 'ready'
+              : (item.phase === 'error' || item.phase === 'refused') ? 'error' : 'loading',
             disabled: busy || item.state === 'running',
             onclick: (event) => {
               event.stopPropagation();
               toggleBulkItem(item);
             },
-          }, item.phase === 'listed' ? (item.to || t('allPick')) : t('checking'));
+          }, item.phase === 'listed' ? (item.to || t('allPick'))
+            : (item.phase === 'error' || item.phase === 'refused') ? t('retry') : t('checking'));
           const head = el('div', {
             class: 'pue-bulk-head',
             role: 'button',
@@ -2052,7 +2057,7 @@
             'data-open': open ? 'true' : 'false',
             'data-state': item.state,
           }, head);
-          if (item.error) node.append(el('div', { class: 'pue-bulk-note' }, item.error));
+          if (item.error) node.append(el('div', { class: 'pue-bulk-note', 'data-tone': 'error' }, item.error));
           else if (item.phase === 'listed' && !item.to && item.state === 'idle') {
             /* Listed but nothing installable here: say it once, up front, instead
              * of letting the run silently skip the package later. */
@@ -2064,9 +2069,15 @@
           return el('li', { role: 'none' }, node);
         }
 
+        /* Mirrors the card: opening a surface re-reads its versions when the
+         * cache is stale. Without this an item whose very first check failed
+         * stays dead — the panel re-renders the same message on every click and
+         * no request is ever made again. */
         function toggleBulkItem(item) {
-          bulk.expanded = bulk.expanded === item.name ? null : item.name;
+          const opening = bulk.expanded !== item.name;
+          bulk.expanded = opening ? item.name : null;
           hideBulkNotes();
+          if (opening && bulk.phase !== 'running' && item.state !== 'running') primeBulkVersions(item);
           renderBulk();
         }
 
@@ -2089,6 +2100,19 @@
           if (item.phase === 'refused' || item.phase === 'error') {
             box.append(el('div', { class: 'pue-loading' },
               item.error || (item.list && item.list.reason) || t('unknown')));
+            /* The card offers the same escape hatch. A failed version check is
+             * recoverable; leaving it with no button strands the row forever. */
+            box.append(el('div', { class: 'pue-actions' },
+              el('span', { class: 'pue-spacer' }),
+              el('button', {
+                class: 'pue-ghost',
+                type: 'button',
+                onclick: (event) => {
+                  event.stopPropagation();
+                  versionCache.delete(item.name);
+                  primeBulkVersions(item, true);
+                },
+              }, t('retry'))));
             return box;
           }
           const list = item.list || { versions: [] };
