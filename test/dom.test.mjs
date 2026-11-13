@@ -78,6 +78,37 @@ test('dom: the toolbar offers one-click updates for every updatable plugin', { s
 });
 
 /**
+ * Two reports from the page, and the same root cause: `listBundles` calls a
+ * package updatable when it *could* be updated, which is not the same as "a
+ * newer version exists", and a version read that never landed is not the same
+ * as "nothing to install".
+ *
+ *   - a package whose registry answer held no versions must not occupy a row
+ *     claiming it is up to date;
+ *   - a batch whose reads all failed must stay runnable — the first version of
+ *     this footer counted only rows that already had a target, so it read
+ *     "更新 0 个" and was disabled, which is exactly how a real update (the
+ *     reported `dsh-model-think-level` 2.6.1) looked undetected. The run now
+ *     re-reads those rows first.
+ */
+test('dom: the bulk panel hides up-to-date rows and retries unread ones', { skip: noJsdom || noCordis }, () => {
+  const output = run('harness-bulk-filters.mjs');
+  /* dsh-ops answered "listed" with no versions: hidden, not shown as up to date. */
+  assert.match(output, /1 rows \["dsh-dead","dsh-flaky"\]/);
+  assert.match(output, /1b noUpToDateNote true/);
+  /* A failed read is labelled as one, and the footer stays enabled. */
+  assert.match(output, /2 picks \["error\|重试","error\|重试"\]/);
+  assert.match(output, /3 runButton 更新 2 个 disabled false/);
+  /* The run re-reads the unread row, which then updates. */
+  assert.match(output, /4 updates \[\["updateBundle","dsh-flaky","2\.6\.4"\]\]/);
+  assert.match(output, /4b readsAfterRun \{"dsh-flaky":2,"dsh-dead":2\}/);
+  /* The row whose second read also failed is reported, not silently dropped. */
+  assert.match(output, /4c states \["dsh-dead:已跳过","dsh-flaky:2\.6\.4"\]/);
+  assert.match(output, /4d foot 1 个已更新，0 个失败 · 1 个已跳过/);
+  assert.match(output, /4e opsHidden true/);
+});
+
+/**
  * A failed version check must not strand a bulk row. The card never had this
  * bug because opening it re-queries whenever the cache is stale and offers a
  * 重试 button when the query failed; the panel queried once at list time, so a

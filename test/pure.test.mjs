@@ -233,12 +233,23 @@ test('updatableBundles keeps only installed packages that offer an update', () =
   assert.deepEqual(pure.updatableBundles([]), []);
 });
 
-test('bulkSummary counts finished, failed and untouched items', () => {
+test('bulkSummary counts finished, failed, skipped and untouched items', () => {
   assert.deepEqual(pure.bulkSummary([
     { state: 'done' }, { state: 'failed' }, { state: 'idle' }, { state: 'skipped' },
-  ]), { ok: 1, failed: 1, pending: 1 });
-  assert.deepEqual(pure.bulkSummary([]), { ok: 0, failed: 0, pending: 0 });
-  assert.deepEqual(pure.bulkSummary(undefined), { ok: 0, failed: 0, pending: 0 });
+  ]), { ok: 1, failed: 1, skipped: 1, pending: 1 });
+  assert.deepEqual(pure.bulkSummary([]), { ok: 0, failed: 0, skipped: 0, pending: 0 });
+  assert.deepEqual(pure.bulkSummary(undefined), { ok: 0, failed: 0, skipped: 0, pending: 0 });
+});
+
+test('bulkRows hides a package whose registry answer held no versions', () => {
+  const listed = (versions) => ({ phase: 'listed', list: { status: 'listed', versions } });
+  assert.deepEqual(pure.bulkRows([
+    { name: 'has-update', ...listed([{ version: '2.0.0' }]) },
+    { name: 'up-to-date', ...listed([]) },
+    { name: 'unread', phase: 'idle', list: null },
+    { name: 'failed', phase: 'error', list: null },
+  ]).map((item) => item.name), ['has-update', 'unread', 'failed']);
+  assert.deepEqual(pure.bulkRows(undefined), []);
 });
 
 test('userMessage hides cordis transport internals from the page', () => {

@@ -219,14 +219,45 @@
   function bulkSummary(items) {
     let ok = 0;
     let failed = 0;
+    let skipped = 0;
     let pending = 0;
     for (const item of Array.isArray(items) ? items : []) {
       if (!item) continue;
       if (item.state === 'done') ok += 1;
       else if (item.state === 'failed') failed += 1;
+      else if (item.state === 'skipped') skipped += 1;
       else if (item.state === 'idle') pending += 1;
     }
-    return { ok, failed, pending };
+    return { ok, failed, skipped, pending };
+  }
+
+  /** The rows a run will actually try: they have a target, or their version read
+   * never landed and the run re-reads them first. A row that was read but offers
+   * nothing installable here stays visible yet is not attempted. */
+  function bulkTargets(items) {
+    const out = [];
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item || item.state !== 'idle') continue;
+      if (!item.to && item.phase === 'listed') continue;
+      out.push(item);
+    }
+    return out;
+  }
+
+  /** The rows the panel shows. `listBundles` calls a package updatable when it
+   * *could* be updated, not when a newer version exists, so a listed answer
+   * with no versions at all means "nothing newer" — that row is hidden instead
+   * of being reported as up to date. A row whose versions exist but none can be
+   * installed here stays visible: it carries information the user needs. */
+  function bulkRows(items) {
+    const out = [];
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item) continue;
+      const versions = (item.list && item.list.versions) || [];
+      if (item.phase === 'listed' && versions.length === 0) continue;
+      out.push(item);
+    }
+    return out;
   }
 
   function messageOf(error) {
@@ -273,6 +304,8 @@
       outputOf,
       updatableBundles,
       bulkSummary,
+      bulkRows,
+      bulkTargets,
     },
     factory() {
       const SEL = {
@@ -509,10 +542,12 @@
           allFailed: '失败',
           allSkipped: '已跳过',
           allStopped: '已停止，剩余 {count} 个未处理',
+          allSkippedDetail: '{count} 个已跳过',
           allStop: '停止',
           allPick: '选择版本',
           allHint: '按列表顺序逐个更新；展开插件可换版本或查看更新日志。',
           allRetry: '重新读取',
+          allStuck: '{count} 个版本尚未取到',
           allEmpty: '全部插件已是最新版本',
         },
         en: {
@@ -590,10 +625,12 @@
           allFailed: 'Failed',
           allSkipped: 'Skipped',
           allStopped: 'Stopped with {count} left to process',
+          allSkippedDetail: '{count} skipped',
           allStop: 'Stop',
           allPick: 'Choose version',
           allHint: 'Plugins update one after another. Expand one to change its version or read release notes.',
           allRetry: 'Read again',
+          allStuck: '{count} not read yet',
           allEmpty: 'Everything is up to date',
         },
       };
@@ -1930,24 +1967,30 @@
          * every row already knows its default target by the time a run starts. */
         function primeBulkVersions(item, force) {
           const cached = force ? null : fresh(versionCache.get(item.name));
-          if (cached) {
+          /* An empty list may just mean the registry call failed on the Host.
+           * Trusting it would hide a real update for the whole TTL. */
+          if (cached && ((cached.versions && cached.versions.length) || 0) > 0) {
             applyBulkList(item, cached);
             if (bulk.open) renderBulk();
-            return;
+            return Promise.resolve(item);
           }
           item.phase = 'loading';
           item.error = '';
-          listVersions(item.name, versionPending, force).then((list) => {
-            if (disposed) return;
-            if (list && list.status === 'listed') versionCache.set(item.name, { list, at: Date.now() });
+          return listVersions(item.name, versionPending, force).then((list) => {
+            if (disposed) return item;
+            if (list && list.status === 'listed' && (list.versions || []).length > 0) {
+              versionCache.set(item.name, { list, at: Date.now() });
+            }
             applyBulkList(item, list);
             if (bulk.open) renderBulk();
+            return item;
           }).catch((error) => {
-            if (disposed) return;
+            if (disposed) return item;
             item.phase = 'error';
             item.error = userMessage(error);
             warn(`listVersions(${item.name})`, error);
             if (bulk.open) renderBulk();
+            return item;
           });
         }
 
@@ -2011,7 +2054,9 @@
           }
           if (bulk.phase === 'empty') return [el('div', { class: 'pue-panel-empty' }, t('allEmpty'))];
           if (bulk.phase === 'done') return [bulkDoneNodes()];
-          return [el('ul', { class: 'pue-bulk', role: 'list' }, bulk.items.map((item) => bulkItemNode(item)))];
+          const rows = bulkRows(bulk.items);
+          if (rows.length === 0) return [el('div', { class: 'pue-panel-empty' }, t('allEmpty'))];
+          return [el('ul', { class: 'pue-bulk', role: 'list' }, rows.map((item) => bulkItemNode(item)))];
         }
 
         function bulkItemNode(item) {
@@ -2154,7 +2199,7 @@
         }
 
         function bulkDoneNodes() {
-          return el('div', { class: 'pue-bulk-done' }, bulk.items.map((item) => {
+          return el('div', { class: 'pue-bulk-done' }, bulkRows(bulk.items).filter((item) => item.state !== 'idle').map((item) => {
             const tone = item.state === 'failed' ? 'failed' : item.state === 'done' ? 'done' : '';
             const detail = item.state === 'done'
               ? (item.to || '')
@@ -2187,12 +2232,12 @@
             ];
           }
           if (bulk.phase === 'done') {
-            const summary = bulkSummary(bulk.items);
+            const summary = bulkSummary(bulkRows(bulk.items));
+            const detail = t('allDoneDetail', summary)
+              + (summary.skipped ? ` · ${t('allSkippedDetail', { count: summary.skipped })}` : '');
             return [
               el('div', { class: 'pue-bulk-note' },
-                summary.failed
-                  ? `${t('allPartial')} · ${t('allDoneDetail', summary)}`
-                  : t('allDoneDetail', summary)),
+                summary.failed ? `${t('allPartial')} · ${detail}` : detail),
               el('div', { class: 'pue-actions' },
                 el('span', { class: 'pue-spacer' }),
                 el('button', {
@@ -2203,17 +2248,24 @@
             ];
           }
           if (bulk.phase !== 'listed') return [];
-          const ready = bulk.items.filter((item) => item.state === 'idle' && item.to).length;
+          const targets = bulkTargets(bulk.items);
+          const ready = targets.filter((item) => item.to).length;
+          /* Rows whose version read never landed are re-read by the run itself,
+           * so a batch with no target yet is still runnable. A disabled button
+           * reading "update 0" is exactly how a real update looks undetected. */
+          const stuck = targets.length - ready;
+          const label = t('allRun', { count: targets.length });
           return [
-            el('div', { class: 'pue-bulk-note' }, t('allHint')),
+            el('div', { class: 'pue-bulk-note' },
+              stuck && ready ? `${t('allHint')} · ${t('allStuck', { count: stuck })}` : t('allHint')),
             el('div', { class: 'pue-actions' },
               el('span', { class: 'pue-spacer' }),
               el('button', {
                 class: 'pue-primary',
                 type: 'button',
-                disabled: ready === 0,
+                disabled: targets.length === 0,
                 onclick: () => runBulk(),
-              }, t('allRun', { count: ready }))),
+              }, label)),
           ];
         }
 
@@ -2223,17 +2275,31 @@
          * progress line instead of opening a card popover. */
         async function runBulk() {
           if (bulk.phase === 'running') return;
-          if (!bulk.items.some((item) => item.state === 'idle')) return;
+          const rows = bulkTargets(bulk.items);
+          if (rows.length === 0) return;
           bulk.phase = 'running';
           bulk.cancelled = false;
           bulk.currentName = '';
           bulk.index = 0;
-          bulk.total = bulk.items.filter((item) => item.state === 'idle').length;
+          bulk.total = 0;
           bulk.expanded = null;
           hideBulkNotes();
           renderBulk();
           syncBulkButton();
-          for (const item of bulk.items) {
+          /* A row whose version read failed or was still in flight is not the
+           * same thing as "nothing to install". Skipping it silently is what
+           * makes a real update look undetected, so re-read it first. */
+          for (const item of rows) {
+            if (bulk.cancelled || item.to || item.phase === 'listed') continue;
+            bulk.currentName = item.name;
+            renderBulk();
+            await primeBulkVersions(item, true);
+            if (disposed) return;
+          }
+          bulk.total = rows.filter((item) => item.to).length;
+          bulk.currentName = '';
+          renderBulk();
+          for (const item of rows) {
             if (item.state !== 'idle') continue;
             if (bulk.cancelled) {
               item.state = 'skipped';
@@ -2268,6 +2334,11 @@
             versionCache.delete(item.name);
             renderBulk();
             if (ok) schedule();
+          }
+          for (const item of bulkRows(bulk.items)) {
+            if (item.state !== 'idle') continue;
+            item.state = 'skipped';
+            item.error = item.phase === 'listed' ? t('noneInstallable') : t('unknown');
           }
           bulk.phase = 'done';
           bulk.currentName = '';
