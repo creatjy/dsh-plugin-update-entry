@@ -77,6 +77,12 @@
 dsh-plugin-update-entry
 ```
 
+还没发到 npm 时，也可以直接装 Release 里附带的 `npm pack` 产物：
+
+```
+https://github.com/creatjy/dsh-plugin-update-entry/releases/download/v1.0.0/dsh-plugin-update-entry-1.0.0.tgz
+```
+
 装好后插件页会多出一行「插件更新入口」，默认启用。它自己也是一个普通组合包，可以随时关掉——关掉后注入的按钮和浮层会一并移除，页面回到原样。
 
 **要求**：DSH 桌面端或 Web 端（Client 侧插件）。插件本身没有 Host 逻辑，不需要重启后端。
