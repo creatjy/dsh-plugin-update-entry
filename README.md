@@ -4,6 +4,10 @@
 
 ![插件卡片上的更新入口，右侧是版本选择与悬停说明](docs/images/hero.png)
 
+它已经上架插件市场，在「插件市场 → 发现」里搜 `dsh-plugin-update-entry` 即可找到：
+
+![插件市场里的 dsh-plugin-update-entry](docs/images/market.png)
+
 > **English.** A DSH plugin that puts an update control immediately before each plugin card's
 > switch, with a version picker that mirrors the detail page and per-version release notes on
 > hover. Same data and same Host operation as the official page — just where the hand already is.
@@ -77,10 +81,10 @@
 dsh-plugin-update-entry
 ```
 
-还没发到 npm 时，也可以直接装 Release 里附带的 `npm pack` 产物：
+也可以直接装 Release 里附带的 `npm pack` 产物（与 npm 上的 tarball 是同一份字节）：
 
 ```
-https://github.com/creatjy/dsh-plugin-update-entry/releases/download/v1.0.0/dsh-plugin-update-entry-1.0.0.tgz
+https://github.com/createjy/dsh-plugin-update-entry/releases/download/v1.0.1/dsh-plugin-update-entry-1.0.1.tgz
 ```
 
 装好后插件页会多出一行「插件更新入口」，默认启用。它自己也是一个普通组合包，可以随时关掉——关掉后注入的按钮和浮层会一并移除，页面回到原样。
